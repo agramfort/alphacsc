@@ -32,6 +32,7 @@ n_times_atom = int(round(sfreq * 1.0))  # 1000. ms
 ###############################################################################
 # Next, we define the parameters for multivariate CSC
 
+from mne.datasets.somato.somato import data_path
 from alphacsc import BatchCDL
 cdl = BatchCDL(
     # Shape of the dictionary
@@ -105,3 +106,60 @@ ax.set_xlim(0, 30)
 
 plt.tight_layout()
 plt.show()
+
+###############################################################################
+# Display the equivalent dipole for a learned topomap
+# ---------------------------------------------------
+#
+# Finally, let us fit a dipole to one of the atoms. To fit a dipole,
+# we need the following:
+#
+# * BEM solution: Obtained by running the cortical reconstruction pipeline
+#   of Freesurfer and describes the conductivity of different tissues in
+#   the head.
+# * Trans: An affine transformation matrix needed to bring the data
+#   from sensor space to head space. This is usually done by coregistering
+#   the fiducials with the MRI.
+# * Noise covariance matrix: To whiten the data so that the assumption
+#   of Gaussian noise model with identity covariance matrix is satisfied.
+#
+# We recommend users to consult the MNE documentation for further information.
+
+import mne_bids
+
+data_path = mne.datasets.somato.data_path()
+subjects_dir = data_path + '/derivatives/freesurfer/subjects'
+fname_bem = './somato-5120-bem-sol.fif'
+raw_path = mne_bids.BIDSPath(subject='01', root=data_path, datatype='meg',
+                             extension='.fif', task='somato')
+trans = mne_bids.get_head_mri_trans(raw_path)
+
+###############################################################################
+# Let us construct an evoked object for MNE with the spatial pattern of the
+# atoms.
+#
+evoked = mne.EvokedArray(cdl.u_hat_.T, info)
+
+###############################################################################
+# Fit a dipole to each of the atoms.
+
+dip = mne.fit_dipole(evoked, info['cov'], fname_bem, trans,
+                     n_jobs=-1, verbose=False)[0]
+
+###############################################################################
+# Plot the dipole fit from the 3rd atom, linked to mu-wave and display the
+# goodness of fit.
+#
+
+from mpl_toolkits.mplot3d import Axes3D
+
+fig = plt.figure()
+
+# Display the dipole fit
+ax = fig.add_subplot(1, 1, 1, projection='3d')
+dip.plot_locations(trans, '01', subjects_dir, idx=i_atom, ax=ax)
+ax.set_title('Atom #{} (GOF {:.2f}%)'.format(i_atom,
+                                             dip.gof[i_atom]))
+
+fig.suptitle('')
+fig.tight_layout()
